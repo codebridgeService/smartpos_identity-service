@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use PHPOpenSourceSaver\JWTAuth\JWTGuard;
 use App\Models\LoginAttempt;
 use App\Models\User;
 use App\Models\UserDevice;
@@ -11,14 +10,29 @@ use App\Models\UserSession;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use PHPOpenSourceSaver\JWTAuth\JWTGuard;
 
 class AuthController extends Controller
 {
+   
     /**
-     * Login using email, phone number, or username.
+     * Login
      */
+
     public function login(Request $request)
     {
+        /*
+        |--------------------------------------------------------------------------
+        | Validate request
+        |
+        | Login using:
+        |
+        | - email
+        | - phone
+        | - username
+        |--------------------------------------------------------------------------
+        */
+
         $data = $request->validate([
             'login' => [
                 'required',
@@ -57,13 +71,19 @@ class AuthController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Find user
+        | Detect login column
         |--------------------------------------------------------------------------
         */
 
         $column = $this->loginColumn(
             $data['login']
         );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Find user
+        |--------------------------------------------------------------------------
+        */
 
         $user = User::where(
             $column,
@@ -86,12 +106,24 @@ class AuthController extends Controller
         ) {
             LoginAttempt::create([
                 'user_id' => $user?->id,
-                'identifier' => $data['login'],
-                'ip_address' => $request->ip(),
-                'user_agent' => $request->userAgent(),
-                'status' => 'failed',
-                'failure_reason' => 'invalid_credentials',
-                'attempted_at' => now(),
+
+                'identifier' =>
+                    $data['login'],
+
+                'ip_address' =>
+                    $request->ip(),
+
+                'user_agent' =>
+                    $request->userAgent(),
+
+                'status' =>
+                    'failed',
+
+                'failure_reason' =>
+                    'invalid_credentials',
+
+                'attempted_at' =>
+                    now(),
             ]);
 
             return response()->json([
@@ -108,12 +140,24 @@ class AuthController extends Controller
         if ($user->status !== 'active') {
             LoginAttempt::create([
                 'user_id' => $user->id,
-                'identifier' => $data['login'],
-                'ip_address' => $request->ip(),
-                'user_agent' => $request->userAgent(),
-                'status' => 'blocked',
-                'failure_reason' => 'account_not_active',
-                'attempted_at' => now(),
+
+                'identifier' =>
+                    $data['login'],
+
+                'ip_address' =>
+                    $request->ip(),
+
+                'user_agent' =>
+                    $request->userAgent(),
+
+                'status' =>
+                    'blocked',
+
+                'failure_reason' =>
+                    'account_not_active',
+
+                'attempted_at' =>
+                    now(),
             ]);
 
             return response()->json([
@@ -129,34 +173,54 @@ class AuthController extends Controller
 
         $device = UserDevice::firstOrCreate(
             [
-                'user_id' => $user->id,
-                'device_uuid' => $data['device_uuid'],
+                'user_id' =>
+                    $user->id,
+
+                'device_uuid' =>
+                    $data['device_uuid'],
             ],
             [
-                'device_name' => $data['device_name'] ?? null,
-                'device_type' => $data['device_type'] ?? null,
-                'platform' => $data['platform'] ?? null,
-        
-                'first_ip_address' => $request->ip(),
+                'device_name' =>
+                    $data['device_name'] ?? null,
+
+                'device_type' =>
+                    $data['device_type'] ?? null,
+
+                'platform' =>
+                    $data['platform'] ?? null,
+
+                'first_ip_address' =>
+                    $request->ip(),
             ]
         );
 
-        
         /*
         |--------------------------------------------------------------------------
-        | Blocked device
+        | Check blocked device
         |--------------------------------------------------------------------------
         */
 
         if ($device->is_blocked) {
             LoginAttempt::create([
                 'user_id' => $user->id,
-                'identifier' => $data['login'],
-                'ip_address' => $request->ip(),
-                'user_agent' => $request->userAgent(),
-                'status' => 'blocked',
-                'failure_reason' => 'device_blocked',
-                'attempted_at' => now(),
+
+                'identifier' =>
+                    $data['login'],
+
+                'ip_address' =>
+                    $request->ip(),
+
+                'user_agent' =>
+                    $request->userAgent(),
+
+                'status' =>
+                    'blocked',
+
+                'failure_reason' =>
+                    'device_blocked',
+
+                'attempted_at' =>
+                    now(),
             ]);
 
             return response()->json([
@@ -172,13 +236,16 @@ class AuthController extends Controller
 
         $device->update([
             'device_name' =>
-                $data['device_name'] ?? $device->device_name,
+                $data['device_name']
+                ?? $device->device_name,
 
             'device_type' =>
-                $data['device_type'] ?? $device->device_type,
+                $data['device_type']
+                ?? $device->device_type,
 
             'platform' =>
-                $data['platform'] ?? $device->platform,
+                $data['platform']
+                ?? $device->platform,
 
             'last_ip_address' =>
                 $request->ip(),
@@ -189,20 +256,29 @@ class AuthController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Create refresh-token session
+        | Create refresh token
         |--------------------------------------------------------------------------
         */
 
         $refreshSecret = Str::random(80);
 
+        /*
+        |--------------------------------------------------------------------------
+        | Create user session
+        |--------------------------------------------------------------------------
+        */
+
         $session = UserSession::create([
-            'user_id' => $user->id,
+            'user_id' =>
+                $user->id,
 
             'user_device_id' =>
                 $device->id,
 
             'refresh_token_hash' =>
-                Hash::make($refreshSecret),
+                Hash::make(
+                    $refreshSecret
+                ),
 
             'ip_address' =>
                 $request->ip(),
@@ -219,6 +295,44 @@ class AuthController extends Controller
 
         /*
         |--------------------------------------------------------------------------
+        | Load RBAC
+        |--------------------------------------------------------------------------
+        |
+        | User
+        |   ↓
+        | user_roles
+        |   ↓
+        | roles
+        |   ↓
+        | role_permissions
+        |   ↓
+        | permissions
+        |
+        */
+
+        $user->load(
+            'roles.permissions'
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Role codes
+        |--------------------------------------------------------------------------
+        */
+
+        $roles = $user->roleCodes();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Permission codes
+        |--------------------------------------------------------------------------
+        */
+
+        $permissions =
+            $user->permissionCodes();
+
+        /*
+        |--------------------------------------------------------------------------
         | Generate JWT access token
         |--------------------------------------------------------------------------
         */
@@ -228,310 +342,633 @@ class AuthController extends Controller
 
         $accessToken = $guard
             ->claims([
-                'sid' => $session->uuid,
-                'device_uuid' => $device->uuid,
+                /*
+                |--------------------------------------------------------------------------
+                | Session
+                |--------------------------------------------------------------------------
+                */
+
+                'sid' =>
+                    $session->uuid,
+
+                /*
+                |--------------------------------------------------------------------------
+                | User UUID
+                |--------------------------------------------------------------------------
+                |
+                | Useful for other microservices.
+                |
+                */
+
+                'user_uuid' =>
+                    $user->uuid,
+
+                /*
+                |--------------------------------------------------------------------------
+                | Device
+                |--------------------------------------------------------------------------
+                */
+
+                'device_uuid' =>
+                    $device->device_uuid,
+
+                /*
+                |--------------------------------------------------------------------------
+                | RBAC
+                |--------------------------------------------------------------------------
+                */
+
+                'roles' =>
+                    $roles,
+
+                'permissions' =>
+                    $permissions,
             ])
             ->login($user);
+
         /*
         |--------------------------------------------------------------------------
-        | Update user login information
+        | Update user login
         |--------------------------------------------------------------------------
         */
 
         $user->update([
-            'last_login_at' => now(),
-            'last_login_ip' => $request->ip(),
+            'last_login_at' =>
+                now(),
+
+            'last_login_ip' =>
+                $request->ip(),
         ]);
 
         /*
         |--------------------------------------------------------------------------
-        | Save successful login
+        | Successful login attempt
         |--------------------------------------------------------------------------
         */
 
         LoginAttempt::create([
-            'user_id' => $user->id,
-            'identifier' => $data['login'],
-            'ip_address' => $request->ip(),
-            'user_agent' => $request->userAgent(),
-            'status' => 'success',
-            'failure_reason' => null,
-            'attempted_at' => now(),
+            'user_id' =>
+                $user->id,
+
+            'identifier' =>
+                $data['login'],
+
+            'ip_address' =>
+                $request->ip(),
+
+            'user_agent' =>
+                $request->userAgent(),
+
+            'status' =>
+                'success',
+
+            'failure_reason' =>
+                null,
+
+            'attempted_at' =>
+                now(),
         ]);
 
+        /*
+        |--------------------------------------------------------------------------
+        | Response
+        |--------------------------------------------------------------------------
+        */
+
         return response()->json([
-            'access_token' => $accessToken,
+            'access_token' =>
+                $accessToken,
 
             'refresh_token' =>
-                $session->uuid . '.' . $refreshSecret,
+                $session->uuid
+                . '.'
+                . $refreshSecret,
 
-            'token_type' => 'Bearer',
+            'token_type' =>
+                'Bearer',
 
             'expires_in' =>
                 config('jwt.ttl') * 60,
 
-            'user' => $user,
+            'refresh_expires_at' =>
+                $session->expires_at
+                    ->toISOString(),
+
+            'user' => [
+                'uuid' =>
+                    $user->uuid,
+
+                'name' =>
+                    $user->name,
+
+                'username' =>
+                    $user->username,
+
+                'email' =>
+                    $user->email,
+
+                'phone' =>
+                    $user->phone,
+
+                'avatar' =>
+                    $user->avatar,
+
+                'status' =>
+                    $user->status,
+
+                /*
+                |--------------------------------------------------------------------------
+                | RBAC
+                |--------------------------------------------------------------------------
+                */
+
+                'roles' =>
+                    $roles,
+
+                'permissions' =>
+                    $permissions,
+            ],
         ]);
     }
 
-    /**
-     * Refresh JWT access token.
-     */
-  /**
- * Refresh JWT access token.
- */
-public function refresh(Request $request)
-{
     /*
     |--------------------------------------------------------------------------
-    | Validate request
+    | Register
     |--------------------------------------------------------------------------
     */
 
-    $data = $request->validate([
-        'refresh_token' => [
-            'required',
-            'string',
-        ],
-    ]);
+    public function register(Request $request)
+    {
+        $data = $request->validate([
+            'name' => [
+                'required',
+                'string',
+                'max:150',
+            ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Split refresh token
-    |--------------------------------------------------------------------------
-    |
-    | Format:
-    |
-    | session_uuid.secret
-    |
-    */
+            'username' => [
+                'required',
+                'string',
+                'max:100',
+                'alpha_dash',
+                'unique:users,username',
+            ],
 
-    [$sessionUuid, $secret] = array_pad(
-        explode(
-            '.',
-            $data['refresh_token'],
-            2
-        ),
-        2,
-        null
-    );
+            'email' => [
+                'nullable',
+                'email',
+                'max:150',
+                'unique:users,email',
+            ],
 
-    if (! $sessionUuid || ! $secret) {
-        return response()->json([
-            'message' => 'Invalid refresh token.',
-        ], 401);
-    }
+            'phone' => [
+                'nullable',
+                'string',
+                'max:30',
+                'unique:users,phone',
+            ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Find refresh-token session
-    |--------------------------------------------------------------------------
-    */
+            'password' => [
+                'required',
+                'string',
+                'min:8',
+                'confirmed',
+            ],
 
-    $session = UserSession::with([
-        'user',
-        'device',
-    ])
-        ->where('uuid', $sessionUuid)
-        ->first();
+            /*
+            |--------------------------------------------------------------------------
+            | Device
+            |--------------------------------------------------------------------------
+            */
 
-    /*
-    |--------------------------------------------------------------------------
-    | Check session exists
-    |--------------------------------------------------------------------------
-    */
+            'device_uuid' => [
+                'required',
+                'string',
+                'max:150',
+            ],
 
-    if (! $session) {
-        return response()->json([
-            'message' => 'Invalid refresh token.',
-        ], 401);
-    }
+            'device_name' => [
+                'nullable',
+                'string',
+                'max:150',
+            ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Check user exists
-    |--------------------------------------------------------------------------
-    */
+            'device_type' => [
+                'nullable',
+                'string',
+                'max:50',
+            ],
 
-    if (! $session->user) {
-        return response()->json([
-            'message' => 'User not found.',
-        ], 401);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Check device exists
-    |--------------------------------------------------------------------------
-    */
-
-    if (! $session->device) {
-        $session->update([
-            'revoked_at' => now(),
+            'platform' => [
+                'nullable',
+                'string',
+                'max:50',
+            ],
         ]);
 
-        return response()->json([
-            'message' => 'Device not found.',
-        ], 401);
-    }
+        /*
+        |--------------------------------------------------------------------------
+        | Create user
+        |--------------------------------------------------------------------------
+        */
 
-    /*
-    |--------------------------------------------------------------------------
-    | Check revoked session
-    |--------------------------------------------------------------------------
-    */
+        $user = User::create([
+            'uuid' =>
+                (string) Str::uuid(),
 
-    if ($session->revoked_at) {
-        return response()->json([
-            'message' => 'Session has been revoked.',
-        ], 401);
-    }
+            'name' =>
+                $data['name'],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Check refresh session expiration
-    |--------------------------------------------------------------------------
-    |
-    | The refresh session expires 30 days after login.
-    |
-    | We DO NOT update expires_at here.
-    |
-    */
+            'username' =>
+                $data['username'],
 
-    if (
-        ! $session->expires_at ||
-        $session->expires_at->isPast()
-    ) {
-        return response()->json([
-            'message' => 'Refresh session has expired. Please login again.',
-        ], 401);
-    }
+            'email' =>
+                $data['email'] ?? null,
 
-    /*
-    |--------------------------------------------------------------------------
-    | Verify refresh-token secret
-    |--------------------------------------------------------------------------
-    */
+            'phone' =>
+                $data['phone'] ?? null,
 
-    if (
-        ! Hash::check(
-            $secret,
-            $session->refresh_token_hash
-        )
-    ) {
-        return response()->json([
-            'message' => 'Invalid refresh token.',
-        ], 401);
-    }
+            'password' =>
+                Hash::make(
+                    $data['password']
+                ),
 
-    /*
-    |--------------------------------------------------------------------------
-    | Check account status
-    |--------------------------------------------------------------------------
-    */
-
-    if ($session->user->status !== 'active') {
-        $session->update([
-            'revoked_at' => now(),
+            'status' =>
+                'active',
         ]);
 
-        return response()->json([
-            'message' => 'Account is not active.',
-        ], 403);
-    }
+        /*
+        |--------------------------------------------------------------------------
+        | Login automatically
+        |--------------------------------------------------------------------------
+        */
 
-    /*
-    |--------------------------------------------------------------------------
-    | Check blocked device
-    |--------------------------------------------------------------------------
-    */
-
-    if ($session->device->is_blocked) {
-        $session->update([
-            'revoked_at' => now(),
+        $request->merge([
+            'login' =>
+                $user->username,
         ]);
 
-        return response()->json([
-            'message' => 'Device is blocked.',
-        ], 403);
+        return $this->login(
+            $request
+        );
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Generate new refresh-token secret
-    |--------------------------------------------------------------------------
-    |
-    | Refresh-token rotation:
-    |
-    | old token -> invalid
-    | new token -> returned to client
-    |
-    */
-
-    $newSecret = Str::random(80);
-
-    /*
-    |--------------------------------------------------------------------------
-    | Update refresh session
+    | Refresh
     |--------------------------------------------------------------------------
     */
 
-    $session->update([
-        'refresh_token_hash' => Hash::make(
-            $newSecret
-        ),
+    public function refresh(Request $request)
+    {
+        /*
+        |--------------------------------------------------------------------------
+        | Validate
+        |--------------------------------------------------------------------------
+        */
 
-        'last_activity_at' => now(),
+        $data = $request->validate([
+            'refresh_token' => [
+                'required',
+                'string',
+            ],
+        ]);
 
-        'ip_address' => $request->ip(),
+        /*
+        |--------------------------------------------------------------------------
+        | Split refresh token
+        |--------------------------------------------------------------------------
+        |
+        | Format:
+        |
+        | session_uuid.secret
+        |
+        */
 
-        'user_agent' => $request->userAgent(),
+        [
+            $sessionUuid,
+            $secret
+        ] = array_pad(
+            explode(
+                '.',
+                $data['refresh_token'],
+                2
+            ),
+            2,
+            null
+        );
 
-        // Do NOT update expires_at.
-        // It remains 30 days from the original login.
-    ]);
+        if (
+            ! $sessionUuid ||
+            ! $secret
+        ) {
+            return response()->json([
+                'message' =>
+                    'Invalid refresh token.',
+            ], 401);
+        }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Generate new JWT access token
-    |--------------------------------------------------------------------------
-    */
+        /*
+        |--------------------------------------------------------------------------
+        | Find session
+        |--------------------------------------------------------------------------
+        */
 
-    /** @var JWTGuard $guard */
-    $guard = auth('api');
-
-    $accessToken = $guard
-        ->claims([
-            'sid' => $session->uuid,
-            'device_uuid' => $session->device->uuid,
+        $session = UserSession::with([
+            'user.roles.permissions',
+            'device',
         ])
-        ->login($session->user);
+            ->where(
+                'uuid',
+                $sessionUuid
+            )
+            ->first();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Session not found
+        |--------------------------------------------------------------------------
+        */
+
+        if (! $session) {
+            return response()->json([
+                'message' =>
+                    'Invalid refresh token.',
+            ], 401);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | User not found
+        |--------------------------------------------------------------------------
+        */
+
+        if (! $session->user) {
+            return response()->json([
+                'message' =>
+                    'User not found.',
+            ], 401);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Device not found
+        |--------------------------------------------------------------------------
+        */
+
+        if (! $session->device) {
+            $session->update([
+                'revoked_at' =>
+                    now(),
+            ]);
+
+            return response()->json([
+                'message' =>
+                    'Device not found.',
+            ], 401);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Revoked session
+        |--------------------------------------------------------------------------
+        */
+
+        if ($session->revoked_at) {
+            return response()->json([
+                'message' =>
+                    'Session has been revoked.',
+            ], 401);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Expired refresh session
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            ! $session->expires_at ||
+            $session->expires_at->isPast()
+        ) {
+            return response()->json([
+                'message' =>
+                    'Refresh session has expired. Please login again.',
+            ], 401);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Validate refresh secret
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            ! Hash::check(
+                $secret,
+                $session->refresh_token_hash
+            )
+        ) {
+            return response()->json([
+                'message' =>
+                    'Invalid refresh token.',
+            ], 401);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Account status
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $session->user->status
+            !== 'active'
+        ) {
+            $session->update([
+                'revoked_at' =>
+                    now(),
+            ]);
+
+            return response()->json([
+                'message' =>
+                    'Account is not active.',
+            ], 403);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Device blocked
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $session->device->is_blocked
+        ) {
+            $session->update([
+                'revoked_at' =>
+                    now(),
+            ]);
+
+            return response()->json([
+                'message' =>
+                    'Device is blocked.',
+            ], 403);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Generate new refresh secret
+        |--------------------------------------------------------------------------
+        |
+        | Refresh token rotation:
+        |
+        | OLD:
+        | session.secret-old
+        |
+        | NEW:
+        | session.secret-new
+        |
+        */
+
+        $newSecret =
+            Str::random(80);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Update session
+        |--------------------------------------------------------------------------
+        */
+
+        $session->update([
+            'refresh_token_hash' =>
+                Hash::make(
+                    $newSecret
+                ),
+
+            'last_activity_at' =>
+                now(),
+
+            'ip_address' =>
+                $request->ip(),
+
+            'user_agent' =>
+                $request->userAgent(),
+
+            /*
+            |--------------------------------------------------------------------------
+            | IMPORTANT
+            |--------------------------------------------------------------------------
+            |
+            | We DO NOT extend expires_at.
+            |
+            | The refresh session is still maximum 30 days
+            | from the original login.
+            |
+            */
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Current RBAC
+        |--------------------------------------------------------------------------
+        |
+        | IMPORTANT:
+        |
+        | We read roles and permissions again during refresh.
+        |
+        | Therefore if Admin changes a user's permission,
+        | the next access token receives the new permissions.
+        |
+        */
+
+        $user = $session->user;
+
+        $user->load(
+            'roles.permissions'
+        );
+
+        $roles =
+            $user->roleCodes();
+
+        $permissions =
+            $user->permissionCodes();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Generate new access token
+        |--------------------------------------------------------------------------
+        */
+
+        /** @var JWTGuard $guard */
+        $guard = auth('api');
+
+        $accessToken = $guard
+            ->claims([
+                'sid' =>
+                    $session->uuid,
+
+                'user_uuid' =>
+                    $user->uuid,
+
+                'device_uuid' =>
+                    $session
+                        ->device
+                        ->device_uuid,
+
+                'roles' =>
+                    $roles,
+
+                'permissions' =>
+                    $permissions,
+            ])
+            ->login($user);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Return new tokens
+        |--------------------------------------------------------------------------
+        */
+
+        return response()->json([
+            'access_token' =>
+                $accessToken,
+
+            'refresh_token' =>
+                $session->uuid
+                . '.'
+                . $newSecret,
+
+            'token_type' =>
+                'Bearer',
+
+            'expires_in' =>
+                config('jwt.ttl') * 60,
+
+            'refresh_expires_at' =>
+                $session
+                    ->expires_at
+                    ->toISOString(),
+
+            /*
+            |--------------------------------------------------------------------------
+            | Optional but useful
+            |--------------------------------------------------------------------------
+            */
+
+            'roles' =>
+                $roles,
+
+            'permissions' =>
+                $permissions,
+        ]);
+    }
 
     /*
     |--------------------------------------------------------------------------
-    | Return new tokens
+    | Me
     |--------------------------------------------------------------------------
     */
-
-    return response()->json([
-        'access_token' => $accessToken,
-
-        'refresh_token' =>
-            $session->uuid . '.' . $newSecret,
-
-        'token_type' => 'Bearer',
-
-        'expires_in' =>
-            config('jwt.ttl') * 60,
-
-        'refresh_expires_at' =>
-            $session->expires_at->toISOString(),
-    ]);
-}
-
-    /**
-     * Return the authenticated user.
-     */
 
     public function me()
     {
@@ -540,21 +977,23 @@ public function refresh(Request $request)
 
         /*
         |--------------------------------------------------------------------------
-        | Get authenticated user ID
+        | Authenticated user ID
         |--------------------------------------------------------------------------
         */
 
-        $userId = $guard->id();
+        $userId =
+            $guard->id();
 
         if (! $userId) {
             return response()->json([
-                'message' => 'Unauthenticated.',
+                'message' =>
+                    'Unauthenticated.',
             ], 401);
         }
 
         /*
         |--------------------------------------------------------------------------
-        | Get session UUID from JWT
+        | Session UUID from JWT
         |--------------------------------------------------------------------------
         */
 
@@ -564,42 +1003,53 @@ public function refresh(Request $request)
 
         if (! $sessionUuid) {
             return response()->json([
-                'message' => 'Invalid session.',
+                'message' =>
+                    'Invalid session.',
             ], 401);
         }
 
         /*
         |--------------------------------------------------------------------------
-        | Check session
+        | Find current session
         |--------------------------------------------------------------------------
         */
 
-        $session = UserSession::with('device')
-            ->where('uuid', $sessionUuid)
-            ->where('user_id', $userId)
+        $session = UserSession::with(
+            'device'
+        )
+            ->where(
+                'uuid',
+                $sessionUuid
+            )
+            ->where(
+                'user_id',
+                $userId
+            )
             ->first();
 
         if (! $session) {
             return response()->json([
-                'message' => 'Session not found.',
+                'message' =>
+                    'Session not found.',
             ], 401);
         }
 
         /*
         |--------------------------------------------------------------------------
-        | Check revoked session
+        | Revoked
         |--------------------------------------------------------------------------
         */
 
         if ($session->revoked_at) {
             return response()->json([
-                'message' => 'Session has been revoked.',
+                'message' =>
+                    'Session has been revoked.',
             ], 401);
         }
 
         /*
         |--------------------------------------------------------------------------
-        | Check expired session
+        | Expired
         |--------------------------------------------------------------------------
         */
 
@@ -608,61 +1058,190 @@ public function refresh(Request $request)
             $session->expires_at->isPast()
         ) {
             return response()->json([
-                'message' => 'Session has expired.',
+                'message' =>
+                    'Session has expired.',
             ], 401);
         }
 
         /*
         |--------------------------------------------------------------------------
-        | Check blocked device
+        | Device blocked
         |--------------------------------------------------------------------------
         */
 
-        if ($session->device?->is_blocked) {
+        if (
+            $session->device?->is_blocked
+        ) {
             return response()->json([
-                'message' => 'Device is blocked.',
+                'message' =>
+                    'Device is blocked.',
             ], 403);
         }
 
         /*
         |--------------------------------------------------------------------------
-        | Load user with roles and permissions
+        | Load user RBAC
         |--------------------------------------------------------------------------
         */
 
-        $user = User::with('roles.permissions')
-            ->find($userId);
+        $user = User::with(
+            'roles.permissions'
+        )->find(
+            $userId
+        );
 
         if (! $user) {
             return response()->json([
-                'message' => 'User not found.',
+                'message' =>
+                    'User not found.',
             ], 404);
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Check account
+        |--------------------------------------------------------------------------
+        */
+
+        if ($user->status !== 'active') {
+            return response()->json([
+                'message' =>
+                    'Account is not active.',
+            ], 403);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | RBAC
+        |--------------------------------------------------------------------------
+        */
+
+        $roles =
+            $user->roleCodes();
+
+        $permissions =
+            $user->permissionCodes();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Response
+        |--------------------------------------------------------------------------
+        */
+
         return response()->json([
-            'user' => $user,
+            'user' => [
+                'uuid' =>
+                    $user->uuid,
+
+                'name' =>
+                    $user->name,
+
+                'username' =>
+                    $user->username,
+
+                'email' =>
+                    $user->email,
+
+                'phone' =>
+                    $user->phone,
+
+                'avatar' =>
+                    $user->avatar,
+
+                'status' =>
+                    $user->status,
+
+                'email_verified_at' =>
+                    $user->email_verified_at,
+
+                'last_login_at' =>
+                    $user->last_login_at,
+
+                /*
+                |--------------------------------------------------------------------------
+                | RBAC
+                |--------------------------------------------------------------------------
+                */
+
+                'roles' =>
+                    $roles,
+
+                'permissions' =>
+                    $permissions,
+            ],
+
+            'session' => [
+                'uuid' =>
+                    $session->uuid,
+
+                'expires_at' =>
+                    $session
+                        ->expires_at
+                        ?->toISOString(),
+
+                'last_activity_at' =>
+                    $session
+                        ->last_activity_at
+                        ?->toISOString(),
+            ],
+
+            'device' => $session->device
+                ? [
+                    'uuid' =>
+                        $session->device->uuid,
+
+                    'device_uuid' =>
+                        $session->device->device_uuid,
+
+                    'device_name' =>
+                        $session->device->device_name,
+
+                    'device_type' =>
+                        $session->device->device_type,
+
+                    'platform' =>
+                        $session->device->platform,
+
+                    'is_trusted' =>
+                        $session->device->is_trusted,
+
+                    'is_blocked' =>
+                        $session->device->is_blocked,
+                ]
+                : null,
         ]);
     }
 
-    /**
-     * Logout and revoke refresh-token session.
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | Logout
+    |--------------------------------------------------------------------------
+    */
+
     public function logout(Request $request)
     {
+        /*
+        |--------------------------------------------------------------------------
+        | Validate
+        |--------------------------------------------------------------------------
+        */
+
         $data = $request->validate([
             'refresh_token' => [
                 'required',
                 'string',
             ],
         ]);
-    
+
         /*
         |--------------------------------------------------------------------------
         | Split refresh token
         |--------------------------------------------------------------------------
         */
-    
-        [$sessionUuid] = array_pad(
+
+        [
+            $sessionUuid
+        ] = array_pad(
             explode(
                 '.',
                 $data['refresh_token'],
@@ -671,50 +1250,96 @@ public function refresh(Request $request)
             2,
             null
         );
-    
+
         /*
         |--------------------------------------------------------------------------
         | JWT Guard
         |--------------------------------------------------------------------------
         */
-    
+
         /** @var JWTGuard $guard */
         $guard = auth('api');
-    
+
         /*
         |--------------------------------------------------------------------------
-        | Revoke refresh-token session
+        | Current JWT session
         |--------------------------------------------------------------------------
         */
-    
+
+        $jwtSessionUuid = $guard
+            ->payload()
+            ->get('sid');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Make sure refresh session matches JWT session
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $sessionUuid &&
+            $jwtSessionUuid &&
+            $sessionUuid !== $jwtSessionUuid
+        ) {
+            return response()->json([
+                'message' =>
+                    'Invalid session.',
+            ], 401);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Revoke refresh session
+        |--------------------------------------------------------------------------
+        */
+
         if ($sessionUuid) {
-            UserSession::where('uuid', $sessionUuid)
-                ->where('user_id', $guard->id())
-                ->whereNull('revoked_at')
+            UserSession::where(
+                'uuid',
+                $sessionUuid
+            )
+                ->where(
+                    'user_id',
+                    $guard->id()
+                )
+                ->whereNull(
+                    'revoked_at'
+                )
                 ->update([
-                    'revoked_at' => now(),
+                    'revoked_at' =>
+                        now(),
                 ]);
         }
-    
+
         /*
         |--------------------------------------------------------------------------
-        | Invalidate JWT
+        | Invalidate access token
         |--------------------------------------------------------------------------
         */
-    
+
         $guard->logout();
-    
+
         return response()->json([
-            'message' => 'Logged out successfully.',
+            'message' =>
+                'Logged out successfully.',
         ]);
     }
 
-    /**
-     * Detect whether login is email, phone, or username.
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | Detect Login Column
+    |--------------------------------------------------------------------------
+    */
+
     private function loginColumn(
         string $login
     ): string {
+        /*
+        |--------------------------------------------------------------------------
+        | Email
+        |--------------------------------------------------------------------------
+        */
+
         if (
             filter_var(
                 $login,
@@ -724,6 +1349,12 @@ public function refresh(Request $request)
             return 'email';
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Phone
+        |--------------------------------------------------------------------------
+        */
+
         if (
             preg_match(
                 '/^\+?[0-9]{7,20}$/',
@@ -732,6 +1363,12 @@ public function refresh(Request $request)
         ) {
             return 'phone';
         }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Username
+        |--------------------------------------------------------------------------
+        */
 
         return 'username';
     }

@@ -1,6 +1,9 @@
 services:
 
-  app:
+  # ==========================================
+  # Identity Laravel
+  # ==========================================
+  identity-service:
     build:
       context: .
       dockerfile: Dockerfile
@@ -13,18 +16,22 @@ services:
       - identity-vendor:/var/www/html/vendor
 
     depends_on:
-      mysql:
+      identity-mysql:
         condition: service_healthy
 
-      redis:
+      identity-redis:
         condition: service_healthy
 
     restart: unless-stopped
 
     networks:
       - identity-network
+      - identity-smartpos-network
 
-  mysql:
+  # ==========================================
+  # Identity MySQL
+  # ==========================================
+  identity-mysql:
     image: mysql:8.4
 
     environment:
@@ -48,9 +55,14 @@ services:
     restart: unless-stopped
 
     networks:
-      - identity-network
+      identity-network:
+        aliases:
+          - mysql
 
-  redis:
+  # ==========================================
+  # Identity Redis
+  # ==========================================
+  identity-redis:
     image: redis:8-alpine
 
     ports:
@@ -68,9 +80,14 @@ services:
     restart: unless-stopped
 
     networks:
-      - identity-network
+      identity-network:
+        aliases:
+          - redis
 
-  phpmyadmin:
+  # ==========================================
+  # Identity phpMyAdmin
+  # ==========================================
+  identity-phpmyadmin:
     image: phpmyadmin:5
 
     ports:
@@ -82,7 +99,7 @@ services:
       UPLOAD_LIMIT: 64M
 
     depends_on:
-      mysql:
+      identity-mysql:
         condition: service_healthy
 
     restart: unless-stopped
@@ -90,11 +107,25 @@ services:
     networks:
       - identity-network
 
+# ==========================================
+# Networks
+# ==========================================
 networks:
+
   identity-network:
     driver: bridge
 
+  identity-smartpos-network:
+    name: smartpos-network
+    external: true
+
+# ==========================================
+# Volumes
+# ==========================================
 volumes:
+
   identity-mysql-data:
+
   identity-redis-data:
+
   identity-vendor:

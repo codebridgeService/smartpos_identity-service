@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Str;
 
 class Role extends Model
@@ -31,19 +32,23 @@ class Role extends Model
         return 'uuid';
     }
 
-    public function users()
+    public function users(): BelongsToMany
     {
         return $this->belongsToMany(
             User::class,
-            'user_roles'
+            'user_roles',
+            'role_id',
+            'user_id'
         )->withTimestamps();
     }
 
-    public function permissions()
+    public function permissions(): BelongsToMany
     {
         return $this->belongsToMany(
             Permission::class,
-            'role_permissions'
+            'role_permissions',
+            'role_id',
+            'permission_id'
         )->withTimestamps();
     }
 }
