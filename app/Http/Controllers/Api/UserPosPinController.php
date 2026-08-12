@@ -10,6 +10,9 @@ use Illuminate\Support\Facades\Hash;
 
 class UserPosPinController extends Controller
 {
+    /**
+     * Set or update the POS PIN for a user in a specific business.
+     */
     public function update(
         Request $request,
         User $user
@@ -48,6 +51,9 @@ class UserPosPinController extends Controller
         ]);
     }
 
+    /**
+     * Verify a user's POS PIN for a business with security checks (lockout on repeated failures).
+     */
     public function verify(
         Request $request,
         User $user

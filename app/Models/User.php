@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Services\RbacCacheService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use PHPOpenSourceSaver\JWTAuth\Contracts\JWTSubject;
 
@@ -51,6 +53,12 @@ class User extends Authenticatable implements JWTSubject
         });
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | JWT
+    |--------------------------------------------------------------------------
+    */
+
     public function getJWTIdentifier()
     {
         return $this->getKey();
@@ -66,13 +74,103 @@ class User extends Authenticatable implements JWTSubject
         return 'uuid';
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Roles
+    |--------------------------------------------------------------------------
+    */
+
     public function roles(): BelongsToMany
     {
         return $this->belongsToMany(
             Role::class,
-            'user_roles'
+            'user_roles',
+            'user_id',
+            'role_id'
         )->withTimestamps();
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Check role
+    |--------------------------------------------------------------------------
+    */
+
+    public function hasRole(string|array $roles): bool
+    {
+        return RbacCacheService::hasRole($this, $roles);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | All permissions
+    |--------------------------------------------------------------------------
+    */
+
+    public function allPermissions(): Collection
+    {
+        $this->loadMissing(
+            'roles.permissions'
+        );
+
+        return $this->roles
+            ->flatMap(
+                fn (Role $role) => $role->permissions
+            )
+            ->unique('id')
+            ->values();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Permission codes
+    |--------------------------------------------------------------------------
+    */
+
+    public function permissionCodes(): array
+    {
+        return RbacCacheService::getUserPermissionCodes($this);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Role codes
+    |--------------------------------------------------------------------------
+    */
+
+    public function roleCodes(): array
+    {
+        return RbacCacheService::getUserRoleCodes($this);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Check permission
+    |--------------------------------------------------------------------------
+    */
+
+    public function hasPermission(
+        string|array $permissions
+    ): bool {
+        return RbacCacheService::hasPermission($this, $permissions);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Clear RBAC Cache
+    |--------------------------------------------------------------------------
+    */
+
+    public function clearRbacCache(): void
+    {
+        RbacCacheService::forgetUserCache($this);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Other relationships
+    |--------------------------------------------------------------------------
+    */
 
     public function devices(): HasMany
     {

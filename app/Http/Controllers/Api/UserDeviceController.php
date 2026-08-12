@@ -7,6 +7,9 @@ use App\Models\UserDevice;
 
 class UserDeviceController extends Controller
 {
+    /**
+     * List registered devices for the authenticated user.
+     */
     public function index()
     {
         return auth('api')
@@ -16,6 +19,9 @@ class UserDeviceController extends Controller
             ->get();
     }
 
+    /**
+     * Mark a device as trusted for the authenticated user.
+     */
     public function trust(
         UserDevice $userDevice
     ) {
@@ -32,6 +38,9 @@ class UserDeviceController extends Controller
         return $userDevice;
     }
 
+    /**
+     * Block a device and revoke all active sessions associated with it.
+     */
     public function block(
         UserDevice $userDevice
     ) {

@@ -5,10 +5,14 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Permission;
 use App\Models\Role;
+use App\Services\RbacCacheService;
 use Illuminate\Http\Request;
 
 class RoleController extends Controller
 {
+    /**
+     * List all roles with attached permissions, optionally filtered by business_uuid.
+     */
     public function index(Request $request)
     {
         return Role::query()
@@ -21,6 +25,9 @@ class RoleController extends Controller
             ->paginate(20);
     }
 
+    /**
+     * Create a new role.
+     */
     public function store(Request $request)
     {
         $data = $request->validate([
@@ -46,11 +53,17 @@ class RoleController extends Controller
         return Role::create($data);
     }
 
+    /**
+     * Get role details with loaded permissions.
+     */
     public function show(Role $role)
     {
         return $role->load('permissions');
     }
 
+    /**
+     * Update role information.
+     */
     public function update(
         Request $request,
         Role $role
@@ -73,6 +86,9 @@ class RoleController extends Controller
         return $role;
     }
 
+    /**
+     * Delete a role.
+     */
     public function destroy(Role $role)
     {
         $role->delete();
@@ -82,6 +98,9 @@ class RoleController extends Controller
         ]);
     }
 
+    /**
+     * Synchronize a list of permissions with a role using permission UUIDs.
+     */
     public function syncPermissions(
         Request $request,
         Role $role
@@ -104,7 +123,8 @@ class RoleController extends Controller
             )
             ->pluck('id');
 
-        $role->permissions()->sync($ids);
+        $role->permissions()->syncWithoutDetaching($ids);
+        RbacCacheService::forgetRoleUsersCache($role);
 
         return $role->load('permissions');
     }

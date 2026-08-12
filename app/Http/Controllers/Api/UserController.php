@@ -10,6 +10,9 @@ use Illuminate\Validation\Rules\Password;
 
 class UserController extends Controller
 {
+    /**
+     * List paginated users with loaded roles.
+     */
     public function index()
     {
         return User::query()
@@ -18,6 +21,9 @@ class UserController extends Controller
             ->paginate(20);
     }
 
+    /**
+     * Create a new user account.
+     */
     public function store(Request $request)
     {
         $data = $request->validate([
@@ -71,6 +77,9 @@ class UserController extends Controller
         ], 201);
     }
 
+    /**
+     * Get user details including roles, permissions, and registered devices.
+     */
     public function show(User $user)
     {
         return $user->load([
@@ -79,6 +88,9 @@ class UserController extends Controller
         ]);
     }
 
+    /**
+     * Update user details.
+     */
     public function update(
         Request $request,
         User $user
@@ -136,6 +148,9 @@ class UserController extends Controller
         ]);
     }
 
+    /**
+     * Delete a user account.
+     */
     public function destroy(User $user)
     {
         $user->delete();

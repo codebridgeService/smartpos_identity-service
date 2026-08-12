@@ -8,6 +8,9 @@ use PHPOpenSourceSaver\JWTAuth\JWTGuard;
 
 class LoginAttemptController extends Controller
 {
+    /**
+     * Get paginated login attempts for the authenticated user.
+     */
     public function index()
     {
         /** @var JWTGuard $guard */

@@ -9,6 +9,9 @@ use Illuminate\Http\Request;
 
 class UserRoleController extends Controller
 {
+    /**
+     * Assign a role to a user.
+     */
     public function store(
         Request $request,
         User $user
@@ -31,14 +34,20 @@ class UserRoleController extends Controller
                 $role->id
             ]);
 
+        $user->clearRbacCache();
+
         return $user->load('roles');
     }
 
+    /**
+     * Remove a role from a user.
+     */
     public function destroy(
         User $user,
         Role $role
     ) {
         $user->roles()->detach($role->id);
+        $user->clearRbacCache();
 
         return response()->json([
             'message' => 'Role removed.'
