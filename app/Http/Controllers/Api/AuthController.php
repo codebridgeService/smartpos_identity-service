@@ -491,11 +491,9 @@ class AuthController extends Controller
         ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Register
-    |--------------------------------------------------------------------------
-    */
+    /**
+     * Register
+     */
 
     public function register(Request $request)
     {
@@ -613,11 +611,9 @@ class AuthController extends Controller
         );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Refresh
-    |--------------------------------------------------------------------------
-    */
+    /**
+     * Refresh
+     */
 
     public function refresh(Request $request)
     {
@@ -964,11 +960,9 @@ class AuthController extends Controller
         ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Me
-    |--------------------------------------------------------------------------
-    */
+    /**
+     * Me
+     */
 
     public function me()
     {
@@ -1212,11 +1206,9 @@ class AuthController extends Controller
         ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Logout
-    |--------------------------------------------------------------------------
-    */
+    /**
+     * Logout
+     */
 
     public function logout(Request $request)
     {
@@ -1325,11 +1317,9 @@ class AuthController extends Controller
         ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Detect Login Column
-    |--------------------------------------------------------------------------
-    */
+    /**
+     * Detect Login Column
+     */
 
     private function loginColumn(
         string $login

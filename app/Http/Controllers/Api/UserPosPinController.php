@@ -5,123 +5,166 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\UserPosPin;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
 class UserPosPinController extends Controller
 {
     /**
-     * Set or update the POS PIN for a user in a specific business.
+     * Create or update POS PIN.
      */
     public function update(
         Request $request,
         User $user
-    ) {
+    ): JsonResponse {
         $data = $request->validate([
             'business_uuid' => [
                 'required',
-                'uuid'
+                'uuid',
             ],
+
             'pin' => [
                 'required',
-                'digits_between:4,6'
+                'digits_between:4,6',
             ],
         ]);
 
-        UserPosPin::updateOrCreate(
+        $posPin = UserPosPin::updateOrCreate(
             [
                 'user_id' => $user->id,
-                'business_uuid' =>
-                    $data['business_uuid'],
+                'business_uuid' => $data['business_uuid'],
             ],
             [
-                'pin_hash' =>
-                    Hash::make($data['pin']),
-
+                'pin_hash' => Hash::make($data['pin']),
                 'is_active' => true,
-
                 'failed_attempts' => 0,
-
                 'locked_until' => null,
             ]
         );
 
         return response()->json([
-            'message' => 'POS PIN updated.'
+            'message' => 'POS PIN updated successfully.',
+            'data' => [
+                'uuid' => $posPin->uuid,
+                'user_uuid' => $user->uuid,
+                'business_uuid' => $posPin->business_uuid,
+                'is_active' => $posPin->is_active,
+            ],
         ]);
     }
 
     /**
-     * Verify a user's POS PIN for a business with security checks (lockout on repeated failures).
+     * Verify POS PIN.
      */
     public function verify(
         Request $request,
         User $user
-    ) {
+    ): JsonResponse {
         $data = $request->validate([
             'business_uuid' => [
                 'required',
-                'uuid'
+                'uuid',
             ],
+
             'pin' => [
                 'required',
-                'digits_between:4,6'
+                'digits_between:4,6',
             ],
         ]);
 
-        $pin = UserPosPin::where(
-            'user_id',
-            $user->id
-        )
-        ->where(
-            'business_uuid',
-            $data['business_uuid']
-        )
-        ->firstOrFail();
+        $posPin = UserPosPin::query()
+            ->where('user_id', $user->id)
+            ->where(
+                'business_uuid',
+                $data['business_uuid']
+            )
+            ->first();
 
-        if (! $pin->is_active) {
+        if (! $posPin) {
             return response()->json([
-                'message' => 'PIN disabled.'
+                'message' => 'POS PIN has not been configured.',
+            ], 404);
+        }
+
+        if (! $posPin->is_active) {
+            return response()->json([
+                'message' => 'POS PIN is disabled.',
             ], 403);
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Check temporary lock
+        |--------------------------------------------------------------------------
+        */
+
         if (
-            $pin->locked_until &&
-            $pin->locked_until->isFuture()
+            $posPin->locked_until &&
+            $posPin->locked_until->isFuture()
         ) {
             return response()->json([
-                'message' => 'PIN temporarily locked.'
+                'message' => 'POS PIN is temporarily locked.',
+                'locked_until' =>
+                    $posPin->locked_until->toIso8601String(),
             ], 423);
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Check PIN
+        |--------------------------------------------------------------------------
+        */
+
         if (! Hash::check(
             $data['pin'],
-            $pin->pin_hash
+            $posPin->pin_hash
         )) {
             $attempts =
-                $pin->failed_attempts + 1;
+                $posPin->failed_attempts + 1;
 
-            $pin->update([
+            $lockedUntil = null;
+
+            if ($attempts >= 5) {
+                $lockedUntil = now()->addMinutes(15);
+            }
+
+            $posPin->update([
                 'failed_attempts' => $attempts,
-
-                'locked_until' =>
-                    $attempts >= 5
-                        ? now()->addMinutes(15)
-                        : null,
+                'locked_until' => $lockedUntil,
             ]);
 
             return response()->json([
-                'message' => 'Invalid PIN.'
+                'message' => $lockedUntil
+                    ? 'Invalid PIN. PIN locked for 15 minutes.'
+                    : 'Invalid PIN.',
+
+                'remaining_attempts' =>
+                    max(0, 5 - $attempts),
+
+                'locked_until' =>
+                    $lockedUntil?->toIso8601String(),
             ], 401);
         }
 
-        $pin->update([
+        /*
+        |--------------------------------------------------------------------------
+        | PIN correct
+        |--------------------------------------------------------------------------
+        */
+
+        $posPin->update([
             'failed_attempts' => 0,
             'locked_until' => null,
         ]);
 
         return response()->json([
-            'message' => 'PIN valid.'
+            'message' => 'POS PIN verified successfully.',
+            'data' => [
+                'user_uuid' => $user->uuid,
+                'business_uuid' =>
+                    $posPin->business_uuid,
+            ],
         ]);
     }
 }

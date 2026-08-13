@@ -19,6 +19,16 @@ class RbacMiddlewareTest extends TestCase
         $response->assertStatus(401);
     }
 
+    public function test_unauthenticated_request_without_accept_header_returns_401_json()
+    {
+        $response = $this->get('/api/v1/users');
+
+        $response->assertStatus(401)
+            ->assertJson([
+                'message' => 'Unauthenticated.',
+            ]);
+    }
+
     public function test_user_without_permission_receives_403_forbidden()
     {
         $user = User::factory()->create(['status' => 'active']);

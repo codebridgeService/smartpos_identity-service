@@ -27,7 +27,7 @@ class RbacCacheService
                 ->values()
                 ->all();
         });
-    }
+    } 
 
     /**
      * Get user's role codes using Redis cache.

@@ -35,6 +35,7 @@ identity-service/
 │   │   │   ├── LoginAttemptController.php
 │   │   │   ├── PermissionController.php
 │   │   │   ├── RoleController.php
+│   │   │   ├── UserAvatarController.php
 │   │   │   ├── UserController.php
 │   │   │   ├── UserDeviceController.php
 │   │   │   ├── UserPosPinController.php
@@ -45,6 +46,7 @@ identity-service/
 │   │       └── CheckRole.php
 │   ├── Models/
 │   └── Services/
+│       ├── AvatarService.php
 │       └── RbacCacheService.php
 ├── database/
 │   └── migrations/
@@ -74,8 +76,9 @@ identity-service/
 - **Token Refresh & Revocation:** Secure JWT lifecycle management with Redis blacklist.
 - **Forgot Password Workflow:** 3-step OTP flow (`send-code`, `verify-code`, `reset-password`).
 
-### 🛡️ Role-Based Access Control (RBAC) & Caching
+### 🛡️ Role-Based Access Control (RBAC) & User Profiles
 - **User Management:** Complete user account lifecycle (create, view, update, enable/disable, delete).
+- **User Avatar Processing:** Profile picture upload supporting JPEG, PNG, and WebP, automatic WebP image conversion and scaling via Intervention Image (`AvatarService`), and file deletion.
 - **Roles & Permissions:** Dynamic role creation, permission module grouping, and bulk permission synchronization.
 - **Redis RBAC Engine:** High-performance caching of roles and permissions in Redis with automatic cache invalidation.
 
@@ -108,6 +111,8 @@ All API routes are prefixed with `/api/v1`.
 | | `POST` | `/api/v1/users` | Create user |
 | | `GET` | `/api/v1/users/{uuid}` | View user details |
 | | `PUT` | `/api/v1/users/{uuid}` | Update user details / status |
+| | `POST` | `/api/v1/users/{uuid}/avatar` | Upload and convert user avatar (WebP format) |
+| | `DELETE` | `/api/v1/users/{uuid}/avatar` | Remove user avatar |
 | | `DELETE` | `/api/v1/users/{uuid}` | Soft delete user |
 | **Roles & Permissions** | `GET` | `/api/v1/roles` | List roles |
 | | `POST` | `/api/v1/roles` | Create role |
@@ -155,6 +160,7 @@ All API routes are prefixed with `/api/v1`.
    - **MySQL 8.4:** `localhost:3307`
    - **Redis 8:** `localhost:6380`
    - **phpMyAdmin:** `http://localhost:8081`
+   - **Identity API Documentation:** `http://localhost:8001/docs/identity`
 
 4. **Initialize Application & Database:**
    ```bash
@@ -205,6 +211,9 @@ All API routes are prefixed with `/api/v1`.
 - [x] List users (`GET /api/v1/users`)
 - [x] Get one user (`GET /api/v1/users/{uuid}`)
 - [x] Update user (`PUT /api/v1/users/{uuid}`)
+- [x] Upload user avatar (`POST /api/v1/users/{uuid}/avatar`)
+- [x] Remove user avatar (`DELETE /api/v1/users/{uuid}/avatar`)
+- [x] Automatic WebP conversion (`AvatarService`)
 - [x] Disable user
 - [x] Enable user
 - [x] Delete user (`DELETE /api/v1/users/{uuid}`)
@@ -372,6 +381,11 @@ All API routes are prefixed with `/api/v1`.
   - [x] Refresh token
   - [x] Logout
   - [x] `/auth/me`
+- **Users & Avatars:**
+  - [x] Avatar upload (JPEG, PNG, WebP)
+  - [x] Automatic WebP conversion
+  - [x] Avatar deletion & file cleanup
+  - [x] Validation errors for invalid image format or size > 5MB
 - **Permissions:**
   - [x] Allowed
   - [x] Denied
