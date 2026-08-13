@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\UserAvatarController;
 use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -37,6 +38,22 @@ Route::post(
 Route::put(
     '/users/{user}',
     [UserController::class, 'update']
+)->middleware(
+    'permission:users.update'
+);
+
+
+Route::post(
+    '/users/{user}/avatar',
+    [UserAvatarController::class, 'upload']
+)->middleware(
+    'permission:users.update'
+);
+
+
+Route::delete(
+    '/users/{user}/avatar',
+    [UserAvatarController::class, 'destroy']
 )->middleware(
     'permission:users.update'
 );

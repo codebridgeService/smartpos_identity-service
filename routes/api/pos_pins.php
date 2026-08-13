@@ -3,22 +3,23 @@
 use App\Http\Controllers\Api\UserPosPinController;
 use Illuminate\Support\Facades\Route;
 
-
 /*
 |--------------------------------------------------------------------------
-| POS PIN
+| POS PIN Routes
 |--------------------------------------------------------------------------
 */
 
-Route::put(
-    '/users/{user}/pos-pin',
-    [UserPosPinController::class, 'update']
-)->middleware(
-    'permission:pos_pin.update'
-);
+Route::prefix('users/{user:uuid}/pos-pin')->group(function () {
 
+    // Create / update cashier PIN
+    Route::put(
+        '/',
+        [UserPosPinController::class, 'update']
+    )->middleware('permission:pos_pin.update');
 
-Route::post(
-    '/users/{user}/pos-pin/verify',
-    [UserPosPinController::class, 'verify']
-);
+    // Verify cashier PIN
+    Route::post(
+        '/verify',
+        [UserPosPinController::class, 'verify']
+    );
+});

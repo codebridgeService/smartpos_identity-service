@@ -24,7 +24,7 @@ Route::prefix('auth')->group(function () {
         [AuthController::class, 'login']
     )->middleware(
         'throttle:10,1'
-    );
+    )->name('login');
 
 
     Route::post(

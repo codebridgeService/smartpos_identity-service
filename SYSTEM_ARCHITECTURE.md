@@ -56,6 +56,7 @@ It provides centralized user management, JWT token-based authentication, fine-gr
 | **API Documentation** | OpenAPI Generator | Dedoc Scramble (`/docs/api`) |
 | **Primary Relational DB** | Storage & Persistence | MySQL 8.4 (InnoDB, UTF8mb4) |
 | **Caching & Session DB** | Cache & Token Blacklist | Redis 8 |
+| **Media & Image Engine** | Image Processing & Storage | `Intervention Image` (GD Driver) & WebP Disk Storage |
 | **Containerization** | Infrastructure | Docker & Docker Compose |
 
 ---
@@ -244,12 +245,29 @@ All endpoints are hosted under prefix `/api/v1`.
 | **Auth** | Authentication | Login, Registration, JWT Refresh, Token Blacklist Logout, Profile (`/auth/me`). |
 | **Auth** | Password Recovery | OTP Generation, OTP Code Verification, Password Reset. |
 | **Users** | User Management | Admin CRUD operations for user accounts with soft deletion support. |
+| **Users** | Avatar Processing | Upload (`POST /users/{user}/avatar`), automatic WebP conversion, file cleanup (`DELETE /users/{user}/avatar`). |
 | **RBAC** | Roles & Permissions | Dynamic Role definition, Permission creation, Role-Permission sync. |
 | **RBAC** | User Roles | Assigning or revoking roles to users (`/users/{user}/roles`). |
 | **Terminal** | POS PIN | Fast PIN creation, updates, and terminal cashier validation (`/users/{user}/pos-pin/verify`). |
 | **Security** | Device Trust | Register devices, set trusted flag (`is_trusted`), block device (`is_blocked`). |
 | **Security** | Sessions | Active user session tracking, single session revoke, purge all active sessions. |
 | **Audit** | Audit Logs | Complete login attempt tracking (`success`/`failed` with IP & User-Agent). |
+
+---
+
+### 5.1 Media & Storage Architecture (User Avatars)
+
+The User Avatar system handles binary image uploads, format normalization, and asset delivery:
+
+- **Storage Path:** Uploaded avatars are processed and written to `storage/app/public/avatars/`.
+- **Public URL Resolution:** Accessible via `/storage/avatars/{filename}` when symbolic link is active (`php artisan storage:link`).
+- **Format Normalization & Optimization (`AvatarService`):**
+  - Accepts `jpeg`, `png`, and `webp` images up to 5MB (`max:5120`).
+  - Converts incoming images into optimized `.webp` files using Intervention Image / GD.
+  - Automatically deletes old avatar files upon new file upload or explicit deletion.
+- **Controller Layer (`UserAvatarController`):**
+  - `POST /api/v1/users/{uuid}/avatar` — Validates upload request and triggers conversion.
+  - `DELETE /api/v1/users/{uuid}/avatar` — Purges file from disk and resets `users.avatar` DB column to `null`.
 
 ---
 
@@ -297,6 +315,7 @@ The application is fully containerized using Docker & Docker Compose:
 - [x] **Password Recovery System:** 3-step OTP-based password reset workflow (`send-code`, `verify-code`, `reset-password`).
 - [x] **Full RBAC System:** Implemented dynamic Roles & Permissions, including mapping models and middleware (`CheckPermission` & `CheckRole`).
 - [x] **POS Terminal PIN Engine:** Hashed PIN registration, update, and quick-verify endpoint for cashier POS terminals.
+- [x] **User Avatar System:** WebP avatar conversion service (`AvatarService`), upload/delete controller (`UserAvatarController`), public storage link, and feature test suite (`UserAvatarTest`).
 - [x] **Device Trust & Session Management:** Device tracking, trusted/blocked status management, and remote session revocation APIs.
 - [x] **Multi-Container Infrastructure:** Complete Docker Compose deployment setup with MySQL 8.4, Redis 8, and phpMyAdmin integration.
 - [x] **API Auto-Documentation:** Scramble OpenAPI documentation integrated at `/docs/api`.

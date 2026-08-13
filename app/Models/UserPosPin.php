@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
 class UserPosPin extends Model
@@ -15,6 +16,7 @@ class UserPosPin extends Model
         'is_active',
         'failed_attempts',
         'locked_until',
+        'last_used_at',
     ];
 
     protected $hidden = [
@@ -23,7 +25,9 @@ class UserPosPin extends Model
 
     protected $casts = [
         'is_active' => 'boolean',
+        'failed_attempts' => 'integer',
         'locked_until' => 'datetime',
+        'last_used_at' => 'datetime',
     ];
 
     protected static function booted(): void
@@ -38,7 +42,7 @@ class UserPosPin extends Model
         return 'uuid';
     }
 
-    public function user()
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
