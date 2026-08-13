@@ -3,6 +3,7 @@ name: CI & Docker Package Build
 on:
   push:
     branches: [ main, master, develop, feature/auth ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main, master, develop ]
 
