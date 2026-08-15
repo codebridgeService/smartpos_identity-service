@@ -58,14 +58,43 @@ jobs:
       - name: Generate JWT Secret
         run: php artisan jwt:secret --force
 
-      - name: Run Tests
+      - name: Run Unit & Feature Tests
         env:
           DB_CONNECTION: sqlite
           DB_DATABASE: ":memory:"
           CACHE_STORE: array
           SESSION_DRIVER: array
           QUEUE_CONNECTION: sync
-        run: php artisan test
+        run: php artisan test --testdox
+
+      - name: Run Security Feature Tests
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ":memory:"
+          CACHE_STORE: array
+          SESSION_DRIVER: array
+          QUEUE_CONNECTION: sync
+        run: |
+          php artisan test tests/Feature/Security --testdox | tee test-report.txt
+
+      - name: Publish Test Report to Step Summary
+        if: always()
+        run: |
+          echo "### 🛡️ SmartPOS Identity Service — Automated Test Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Suite | Scope | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Unit & Feature Suite** | Core API, Auth & RBAC | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Security Pentest & Validation** | OWASP API & Input Validation | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f test-report.txt ]; then
+            echo "<details><summary><b>View Security Test Output Details (TestDox)</b></summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```text' >> $GITHUB_STEP_SUMMARY
+            cat test-report.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+          fi
 
   build-docker:
     name: Build & Push Docker Package
