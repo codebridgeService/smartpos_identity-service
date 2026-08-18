@@ -101,31 +101,84 @@ class RoleController extends Controller
     /**
      * Synchronize a list of permissions with a role using permission UUIDs.
      */
+    /**
+     * Synchronize a list of permissions with a role using permission UUIDs, or all permissions.
+     */
     public function syncPermissions(
         Request $request,
         Role $role
     ) {
         $data = $request->validate([
+            'all' => [
+                'sometimes',
+                'boolean',
+            ],
             'permission_uuids' => [
-                'required',
-                'array'
+                'required_without:all',
+                'array',
             ],
             'permission_uuids.*' => [
                 'uuid',
-                'exists:permissions,uuid'
+                'exists:permissions,uuid',
             ],
         ]);
 
-        $ids = Permission::query()
-            ->whereIn(
-                'uuid',
-                $data['permission_uuids']
-            )
-            ->pluck('id');
+        if (! empty($data['all']) && $data['all'] === true) {
+            $ids = Permission::pluck('id');
+            $role->permissions()->sync($ids);
+        } else {
+            $ids = Permission::query()
+                ->whereIn(
+                    'uuid',
+                    $data['permission_uuids'] ?? []
+                )
+                ->pluck('id');
 
-        $role->permissions()->syncWithoutDetaching($ids);
+            $role->permissions()->syncWithoutDetaching($ids);
+        }
+
         RbacCacheService::forgetRoleUsersCache($role);
 
         return $role->load('permissions');
+    }
+
+    /**
+     * Attach ALL available permissions to a role in one call.
+     */
+    public function syncAllPermissions(Role $role)
+    {
+        $ids = Permission::pluck('id');
+        $role->permissions()->sync($ids);
+
+        RbacCacheService::forgetRoleUsersCache($role);
+
+        return response()->json([
+            'message' => 'All permissions attached to role successfully.',
+            'count' => $ids->count(),
+            'data' => $role->load('permissions'),
+        ]);
+    }
+
+    /**
+     * Auto-provision standard roles (Store_Manager, Cashier, Inventory_Clerk) for a business.
+     */
+    public function provision(
+        Request $request,
+        \App\Services\RoleProvisionService $provisioner
+    ) {
+        $data = $request->validate([
+            'business_uuid' => [
+                'required',
+                'uuid',
+            ],
+        ]);
+
+        $roles = $provisioner->provisionForBusiness($data['business_uuid']);
+
+        return response()->json([
+            'message' => 'Standard roles provisioned successfully.',
+            'count' => $roles->count(),
+            'data' => $roles,
+        ], 201);
     }
 }

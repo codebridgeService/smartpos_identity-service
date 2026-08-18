@@ -18,6 +18,14 @@ class UserPosPinController extends Controller
         Request $request,
         User $user
     ): JsonResponse {
+        $authUser = auth('api')->user();
+
+        if ($authUser && (int) $authUser->id !== (int) $user->id && ! $authUser->hasPermission('pos_pin.manage')) {
+            return response()->json([
+                'message' => 'Forbidden.',
+            ], 403);
+        }
+
         $data = $request->validate([
             'business_uuid' => [
                 'required',
@@ -61,6 +69,14 @@ class UserPosPinController extends Controller
         Request $request,
         User $user
     ): JsonResponse {
+        $authUser = auth('api')->user();
+
+        if ($authUser && (int) $authUser->id !== (int) $user->id && ! $authUser->hasPermission('pos_pin.manage')) {
+            return response()->json([
+                'message' => 'Forbidden.',
+            ], 403);
+        }
+
         $data = $request->validate([
             'business_uuid' => [
                 'required',

@@ -17,9 +17,14 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->trustProxies(at: '*');
 
+        $middleware->append(\App\Http\Middleware\SecurityHeadersMiddleware::class);
+        $middleware->append(\App\Http\Middleware\AttackShieldMiddleware::class);
+        $middleware->append(\App\Http\Middleware\SanitizeInputMiddleware::class);
+
         $middleware->alias([
             'permission' => \App\Http\Middleware\CheckPermission::class,
             'role' => \App\Http\Middleware\CheckRole::class,
+            'session.active' => \App\Http\Middleware\EnsureDeviceAndSessionActive::class,
         ]);
 
     })

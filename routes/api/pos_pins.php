@@ -21,5 +21,5 @@ Route::prefix('users/{user:uuid}/pos-pin')->group(function () {
     Route::post(
         '/verify',
         [UserPosPinController::class, 'verify']
-    );
+    )->middleware(['permission:pos_pin.verify', 'throttle:10,1']);
 });

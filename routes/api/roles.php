@@ -27,6 +27,14 @@ Route::get(
 
 
 Route::post(
+    '/roles/provision',
+    [RoleController::class, 'provision']
+)->middleware(
+    'permission:roles.create'
+);
+
+
+Route::post(
     '/roles',
     [RoleController::class, 'store']
 )->middleware(
@@ -53,6 +61,14 @@ Route::delete(
 Route::post(
     '/roles/{role}/permissions',
     [RoleController::class, 'syncPermissions']
+)->middleware(
+    'permission:roles.update'
+);
+
+
+Route::post(
+    '/roles/{role}/permissions/all',
+    [RoleController::class, 'syncAllPermissions']
 )->middleware(
     'permission:roles.update'
 );

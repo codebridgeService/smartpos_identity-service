@@ -1,6 +1,6 @@
 # SmartPOS Identity Service — System Architecture & Design Document
 
-> **Document Version:** 1.0.0  
+> **Document Version:** 1.1.0  
 > **Last Updated:** August 2026  
 > **Service Name:** `smartpos/identity-service`  
 > **Repository:** SmartPOS Platform Ecosystem  
@@ -11,7 +11,7 @@
 
 **SmartPOS Identity Service** (`smartpos/identity-service`) is the foundational identity provider (IdP), authentication engine, and access control microservice for the SmartPOS retail and point-of-sale ecosystem.
 
-It provides centralized user management, JWT token-based authentication, fine-grained Role-Based Access Control (RBAC), cashier POS PIN security, device trust management, user session revocation, and security audit logging.
+It provides centralized user management, JWT token-based authentication, fine-grained Role-Based Access Control (RBAC), cashier POS PIN security, device trust management, user session revocation, automated attack shield protection, OWASP security headers, and security audit logging.
 
 ```
                     +-------------------------------------------------+
@@ -28,7 +28,9 @@ It provides centralized user management, JWT token-based authentication, fine-gr
                     +-------------------------------------------------+
                     |      SmartPOS Identity Service (Laravel 12)     |
                     |   +-----------------------------------------+   |
-                    |   |  JWT Auth Guard & Security Middleware   |   |
+                    |   |  Security Headers & Attack Shield Guard |   |
+                    |   +-----------------------------------------+   |
+                    |   |  JWT Auth & Session/Device Verifier     |   |
                     |   +-----------------------------------------+   |
                     |   |  RBAC (Users, Roles, Permissions)       |   |
                     |   +-----------------------------------------+   |
@@ -57,6 +59,7 @@ It provides centralized user management, JWT token-based authentication, fine-gr
 | **Primary Relational DB** | Storage & Persistence | MySQL 8.4 (InnoDB, UTF8mb4) |
 | **Caching & Session DB** | Cache & Token Blacklist | Redis 8 |
 | **Media & Image Engine** | Image Processing & Storage | `Intervention Image` (GD Driver) & WebP Disk Storage |
+| **Security Shields** | Threat & Bot Filtering | Custom Middleware Pipeline (OWASP Headers, AttackShield, SanitizeInput) |
 | **Containerization** | Infrastructure | Docker & Docker Compose |
 
 ---
@@ -74,9 +77,10 @@ sequenceDiagram
 
     POS->>Gateway: POST /api/v1/auth/login (credentials / device fingerprint)
     Gateway->>Identity: Forward login request
+    Identity->>Identity: Attack Shield & Sanitize Input validation
     Identity->>DB: Query user by email/username
     DB-->>Identity: Return User record & hashedPassword
-    Identity->>Identity: Verify password (Bcrypt) & check device trust
+    Identity->>Identity: Constant-time Bcrypt verification & check device status
     alt Authentication Success
         Identity->>DB: Record successful attempt in login_attempts & create user_session
         Identity->>Identity: Generate JWT Token (Access & Refresh TTL)
@@ -193,46 +197,91 @@ erDiagram
 ## 4. Security Architecture & Threat Defense
 
 ### 4.1 Token Lifecycle & Revocation
-- **JWT Standard Claims:** Issued with `sub` (User ID), `iat`, `exp`, `nbf`, and `jti` (unique JWT ID).
+- **JWT Standard Claims:** Issued with `sub` (User ID), `sid` (Session UUID), `device_uuid`, `iat`, `exp`, `nbf`, and `jti` (unique JWT ID).
 - **Blacklisting via Redis:** Upon explicit logout (`POST /api/v1/auth/logout`) or session termination, the token JTI is pushed to Redis with an expiration matching the token's remaining TTL.
 
 ```mermaid
 graph TD
     A[Incoming Request with Bearer Token] --> B{Valid JWT Signature?}
     B -- No --> C[401 Unauthorized]
-    B -- Yes --> D{Is JTI Blacklisted in Redis?}
-    D -- Yes --> C
-    D -- No --> E{User Account Active & Unblocked?}
-    E -- No --> F[403 Forbidden]
-    E -- Yes --> G[Grant Access to API Route]
+    B -- Yes --> D{Session Active & Not Revoked?}
+    D -- No --> C
+    D -- Yes --> E{Device Blocked?}
+    E -- Yes --> F[403 Forbidden: Device is blocked]
+    E -- No --> G{User Account Active?}
+    G -- No --> H[403 Forbidden: Account is not active]
+    G -- Yes --> I{Required RBAC Permission?}
+    I -- No --> J[403 Forbidden: Permission missing]
+    I -- Yes --> K[Grant Access to API Route]
 ```
 
-### 4.2 POS Terminal Quick-PIN Security
-- **Salted Hashing:** Fast cashier authentication on POS hardware relies on a 4-6 digit numeric PIN.
-- **Lockout Mechanism:** After consecutive failed PIN attempts, `failed_attempts` increments. Crossing the threshold triggers a lock on `locked_until` to block brute-force attacks on POS terminals.
+---
 
-### 4.3 3-Step OTP Password Reset Workflow
-1. **Send OTP Code (`POST /api/v1/auth/forgot-password/send-code`):** Generates a cryptographically random 6-digit numeric OTP with 15-minute expiration stored in `auth_otps`.
-2. **Verify Code (`POST /api/v1/auth/verify-reset-code`):** Validates the active OTP, setting `is_verified = true`.
-3. **Reset Password (`POST /api/v1/auth/reset-password`):** Consumes the verified OTP token to update the user password with Bcrypt hashing.
+### 4.2 Middleware Security Pipeline
 
-### 4.4 Middleware Security Pipeline
+Every incoming HTTP request passes through a multi-tiered defense-in-depth pipeline:
 
 ```
 Route Request
      │
      ▼
-[ Throttle Middleware ] ---> Rate limit login/register attempts (e.g. 5 req/min)
+[ Security Headers Middleware ] ---> Injects OWASP headers, strips X-Powered-By
      │
      ▼
-[ Auth Guard (auth:api) ] -> Validates JWT bearer token & extracts User
+[ Attack Shield Middleware ] ------> Blocks scanner User-Agents (sqlmap, nikto), sensitive path probes (/.env), and path traversal
      │
      ▼
-[ Permission / Role Middleware ] -> CheckPermission.php & CheckRole.php
+[ Sanitize Input Middleware ] -----> Enforces 2MB JSON body size limit, strips null-bytes (\0) and malformed UTF-8
      │
      ▼
-[ Controller Execution ] -> Business Logic Execution
+[ Throttle Middleware ] -----------> Rate limits endpoints (e.g. 10/min login, 5/min register, 20/min refresh)
+     │
+     ▼
+[ Auth Guard (auth:api) ] ---------> Validates JWT signature, expiration timestamp, and loads User model
+     │
+     ▼
+[ Session & Device Guard ] --------> EnsureDeviceAndSessionActive.php (Validates revoked sessions, expired sessions & blocked devices)
+     │
+     ▼
+[ RBAC Guard ] --------------------> CheckPermission.php & CheckRole.php (Verifies permission/role requirements)
+     │
+     ▼
+[ Controller Execution ] ----------> Business Logic Execution
 ```
+
+---
+
+### 4.3 Defense-in-Depth & Application Hardening
+
+1. **OWASP HTTP Security Headers:**
+   - `X-Content-Type-Options: nosniff`
+   - `X-Frame-Options: DENY`
+   - `X-XSS-Protection: 1; mode=block`
+   - `Referrer-Policy: strict-origin-when-cross-origin`
+   - `Content-Security-Policy: default-src 'none'; frame-ancestors 'none';`
+   - `Strict-Transport-Security: max-age=31536000; includeSubDomains`
+   - `Permissions-Policy: accelerometer=(), camera=(), geolocation=(), ...`
+
+2. **Scanner & Reconnaissance Shield:**
+   - Blocks automated tools (e.g. `sqlmap`, `nikto`, `hydra`, `metasploit`, `nmap`, `arachni`).
+   - Intercepts sensitive probes targeting configuration files (`/.env`, `/.git`, `/.aws`, `/dump.sql`, `/backup.sql`).
+
+3. **User Enumeration & Timing Attack Mitigation:**
+   - Forgot-password OTP endpoint returns uniform messages (`"If the email exists, a verification code has been sent."`) regardless of user existence.
+   - Login credential verification performs constant-time dummy hash verification when a username/email does not exist, eliminating timing disparity.
+
+4. **Real-Time Device & Session Enforcement:**
+   - Tokens carry `sid` (session UUID).
+   - Any device marked `is_blocked = 1` or session marked `revoked_at` is immediately rejected across **all** protected endpoints with `403 Forbidden` / `401 Unauthorized`.
+
+5. **POS Terminal Quick-PIN Security:**
+   - Salted hashing for 4-6 digit numeric PINs.
+   - Lockout threshold: 5 consecutive failed attempts trigger a 15-minute lock on `locked_until` (returning `423 Locked`).
+
+6. **3-Step OTP Password Reset Workflow:**
+   - Step 1: `POST /api/v1/auth/forgot-password/send-code` generates random 6-digit OTP with 10-minute TTL.
+   - Step 2: `POST /api/v1/auth/verify-reset-code` validates OTP (5 max attempts before self-destruct).
+   - Step 3: `POST /api/v1/auth/reset-password` consumes verified OTP, updates password, and revokes all active sessions.
 
 ---
 
@@ -246,7 +295,7 @@ All endpoints are hosted under prefix `/api/v1`.
 | **Auth** | Password Recovery | OTP Generation, OTP Code Verification, Password Reset. |
 | **Users** | User Management | Admin CRUD operations for user accounts with soft deletion support. |
 | **Users** | Avatar Processing | Upload (`POST /users/{user}/avatar`), automatic WebP conversion, file cleanup (`DELETE /users/{user}/avatar`). |
-| **RBAC** | Roles & Permissions | Dynamic Role definition, Permission creation, Role-Permission sync. |
+| **RBAC** | Roles & Permissions | Dynamic Role definition, Permission creation, Role-Permission sync, Business Role Auto-Provisioning (`POST /roles/provision`). |
 | **RBAC** | User Roles | Assigning or revoking roles to users (`/users/{user}/roles`). |
 | **Terminal** | POS PIN | Fast PIN creation, updates, and terminal cashier validation (`/users/{user}/pos-pin/verify`). |
 | **Security** | Device Trust | Register devices, set trusted flag (`is_trusted`), block device (`is_blocked`). |
@@ -257,13 +306,11 @@ All endpoints are hosted under prefix `/api/v1`.
 
 ### 5.1 Media & Storage Architecture (User Avatars)
 
-The User Avatar system handles binary image uploads, format normalization, and asset delivery:
-
 - **Storage Path:** Uploaded avatars are processed and written to `storage/app/public/avatars/`.
 - **Public URL Resolution:** Accessible via `/storage/avatars/{filename}` when symbolic link is active (`php artisan storage:link`).
 - **Format Normalization & Optimization (`AvatarService`):**
   - Accepts `jpeg`, `png`, and `webp` images up to 5MB (`max:5120`).
-  - Converts incoming images into optimized `.webp` files using Intervention Image / GD.
+  - Converts incoming images into optimized `.webp` files using GD Driver (`imagewebp`).
   - Automatically deletes old avatar files upon new file upload or explicit deletion.
 - **Controller Layer (`UserAvatarController`):**
   - `POST /api/v1/users/{uuid}/avatar` — Validates upload request and triggers conversion.
@@ -273,7 +320,7 @@ The User Avatar system handles binary image uploads, format normalization, and a
 
 ## 6. Containerization & Deployment Architecture
 
-The application is fully containerized using Docker & Docker Compose:
+The application is containerized using Docker & Docker Compose:
 
 ```
                           +-----------------------------------+
@@ -298,12 +345,6 @@ The application is fully containerized using Docker & Docker Compose:
                    +---------------+
 ```
 
-### Container Services Configuration:
-- **`app`**: Custom PHP 8.3 FPM / Nginx image hosting Laravel 12 application code.
-- **`db`**: Official MySQL 8.4 container with persistent storage volumes.
-- **`redis`**: Official Redis 8 container configured for volatile-lru caching and queue backend.
-- **`phpmyadmin`**: Database management UI exposed for localized developer debugging.
-
 ---
 
 ## 7. Task Progress & Development Roadmap
@@ -312,11 +353,13 @@ The application is fully containerized using Docker & Docker Compose:
 
 - [x] **Database Schema Foundation:** Built 13 robust migrations covering users, roles, permissions, devices, sessions, POS PINs, and login attempts.
 - [x] **Authentication Engine:** Complete JWT authentication flow using `jwt-auth`, including registration, login, token refresh, and logout.
-- [x] **Password Recovery System:** 3-step OTP-based password reset workflow (`send-code`, `verify-code`, `reset-password`).
+- [x] **Password Recovery System:** 3-step OTP-based password reset workflow with anti-enumeration protection.
 - [x] **Full RBAC System:** Implemented dynamic Roles & Permissions, including mapping models and middleware (`CheckPermission` & `CheckRole`).
-- [x] **POS Terminal PIN Engine:** Hashed PIN registration, update, and quick-verify endpoint for cashier POS terminals.
-- [x] **User Avatar System:** WebP avatar conversion service (`AvatarService`), upload/delete controller (`UserAvatarController`), public storage link, and feature test suite (`UserAvatarTest`).
-- [x] **Device Trust & Session Management:** Device tracking, trusted/blocked status management, and remote session revocation APIs.
+- [x] **POS Terminal PIN Engine:** Hashed PIN registration, update, and quick-verify endpoint with brute-force lockout.
+- [x] **User Avatar System:** WebP avatar conversion service (`AvatarService`), upload/delete controller (`UserAvatarController`), public storage link, and feature test suite.
+- [x] **Device Trust & Session Management:** Device tracking, trusted/blocked status management, remote session revocation APIs, and global `EnsureDeviceAndSessionActive` middleware.
+- [x] **Defense-in-Depth Pipeline:** `SecurityHeadersMiddleware`, `AttackShieldMiddleware`, `SanitizeInputMiddleware`, and constant-time login verification.
+- [x] **Automated Security Test Suite:** 67 automated test cases passing across Unit, Feature, RBAC, Pentest, and Session/Device security suites.
 - [x] **Multi-Container Infrastructure:** Complete Docker Compose deployment setup with MySQL 8.4, Redis 8, and phpMyAdmin integration.
 - [x] **API Auto-Documentation:** Scramble OpenAPI documentation integrated at `/docs/api`.
 
@@ -324,49 +367,14 @@ The application is fully containerized using Docker & Docker Compose:
 
 ### 7.2 📋 Actionable Roadmap & Priority Backlog
 
-```mermaid
-gantt
-    title SmartPOS Identity Service Development Roadmap
-    dateFormat  YYYY-MM-DD
-    section Phase 1 (Completed)
-    Core Auth & RBAC Architecture          :done, 2026-08-01, 2026-08-11
-    section Phase 2 (Immediate)
-    Automated Test Suite & Seeders         :active, 2026-08-12, 2026-08-25
-    API Response Standard & Transformers   : 2026-08-20, 2026-08-30
-    section Phase 3 (Medium-Term)
-    Live SMS/Email Delivery Integration    : 2026-09-01, 2026-09-20
-    Device Anomaly & GeoIP Detection       : 2026-09-15, 2026-10-05
-    section Phase 4 (Enterprise Scale)
-    OAuth2 / OIDC Server Integration       : 2026-10-10, 2026-11-15
-    Passkeys / WebAuthn Biometrics         : 2026-11-01, 2026-12-01
-```
+#### Phase 2: Live Delivery & Response Transformers (Target: Q3 2026)
+- [ ] **Gmail SMTP Mailer Integration:** Configure SMTP credentials for live delivery of password reset OTPs.
+- [ ] **Telegram Bot OTP Dispatch:** Dispatch OTP verification codes via Telegram webhook/bot.
+- [ ] **API Response Standardization:** Standardize API Resources (`UserResource`, `RoleResource`, `UserDeviceResource`) with a unified response envelope.
 
-#### Phase 2: Quality Assurance, Testing & Seeders (Target: Q3 2026)
-- [x] **Redis RBAC Caching Engine:** Low-latency caching of user permissions and roles using Redis with smart cache invalidation on role updates.
-- [ ] **Gmail SMTP Mailer Integration:**
-  - Configure Gmail / SMTP driver for real email delivery of 6-digit OTP password reset codes in `ForgotPasswordController.php`.
-- [ ] **Telegram Bot OTP Dispatch (by Phone Number):**
-  - Implement Telegram Bot API integration to dispatch 6-digit OTP verification codes directly to cashier/user mobile phones via Telegram webhook/bot notification.
-- [ ] **Automated Feature Test Suite:**
-  - Create `AuthControllerTest.php` to verify login, refresh, profile, registration, and logout flows.
-  - Create `RbacTest.php` to verify role assignment, permission checks, and 403 authorization rejections.
-  - Create `UserPosPinTest.php` to verify PIN validation, lockout counters, and updates.
-- [ ] **Baseline Database Seeders:**
-  - Create `RoleAndPermissionSeeder` with standard POS roles (`Admin`, `Store_Manager`, `Cashier`, `Inventory_Clerk`).
-  - Create default permission mapping matrix (`users.manage`, `roles.manage`, `pos_pin.manage`, `devices.manage`).
-- [ ] **API Response Standardization:**
-  - Implement unified API Resources (`UserResource`, `RoleResource`, `UserDeviceResource`).
-  - Implement a global `ApiResponse` trait for consistent `{ success: bool, data: [...], message: string }` payloads.
+#### Phase 3: Anomaly Detection & Geolocation (Target: Q4 2026)
+- [ ] **GeoIP & Anomaly Detection:** Flag suspicious logins from unexpected countries or unusual IP ranges.
 
-#### Phase 3: Production Hardening & Integration (Target: Q4 2026)
-- [ ] **Security Anomaly Detection:**
-  - Implement GeoIP lookup on `login_attempts` to flag logins from unexpected countries or unusual IP ranges.
-  - Automatically notify users upon login from an untrusted or new device.
-
-#### Phase 4: Enterprise Scale & Ecosystem Federation (Target: Late 2026 / 2027)
-- [ ] **OAuth2 / OpenID Connect (OIDC) Provider:**
-  - Integrate Laravel Passport or Sanctum OIDC extension to enable single sign-on (SSO) across 3rd party SmartPOS extensions.
-- [ ] **Biometric & WebAuthn Integration:**
-  - Enable hardware key (FIDO2) and biometric login capabilities for desktop and tablet POS hardware.
-- [ ] **High Availability & Distributed Caching:**
-  - Deploy Redis Sentinel / Cluster configuration for zero-downtime token revocation checks across multiple regions.
+#### Phase 4: Enterprise Scale (Target: 2027)
+- [ ] **OAuth2 / OIDC Provider Integration.**
+- [ ] **Passkeys / WebAuthn Biometric Authentication for POS Hardware.**

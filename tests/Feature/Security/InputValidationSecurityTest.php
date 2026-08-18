@@ -294,7 +294,7 @@ class InputValidationSecurityTest extends TestCase
 
     public function test_pos_pin_verify_fails_with_missing_pin_and_invalid_uuid(): void
     {
-        [$user, $token] = $this->authenticateWithPermissions();
+        [$user, $token] = $this->authenticateWithPermissions(['pos_pin.verify']);
 
         $response = $this->withHeader('Authorization', 'Bearer ' . $token)
             ->postJson("/api/v1/users/{$user->uuid}/pos-pin/verify", [
