@@ -96,14 +96,21 @@ class AuthController extends Controller
         |--------------------------------------------------------------------------
         */
 
-        if (
-            ! $user ||
-            ! $user->password ||
-            ! Hash::check(
+        $passwordValid = false;
+        if ($user && $user->password) {
+            $passwordValid = Hash::check(
                 $data['password'],
                 $user->password
-            )
-        ) {
+            );
+        } else {
+            // Constant-time dummy hash check to mitigate timing-based user enumeration
+            Hash::check(
+                $data['password'],
+                '$2y$10$e8w.xL2vP1N6y5kLg8x5..d3wK6K8sQ1h8v1N2n3L4k5J6h7g8f9e'
+            );
+        }
+
+        if (! $passwordValid) {
             LoginAttempt::create([
                 'user_id' => $user?->id,
 

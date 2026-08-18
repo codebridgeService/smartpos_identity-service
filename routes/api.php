@@ -10,6 +10,16 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
 
+    // Health check
+    Route::get('/identity/health', function () {
+        return response()->json([
+            'status' => 'ok',
+            'service' => 'smartpos-identity-service',
+            'version' => '1.0.0',
+            'timestamp' => now()->toIso8601String(),
+        ]);
+    });
+
     /*
     |--------------------------------------------------------------------------
     | Authentication
@@ -25,7 +35,7 @@ Route::prefix('v1')->group(function () {
     |--------------------------------------------------------------------------
     */
 
-    Route::middleware('auth:api')->group(function () {
+    Route::middleware(['auth:api', 'session.active'])->group(function () {
 
         require __DIR__.'/api/users.php';
 

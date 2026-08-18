@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Models\UserSession;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -22,41 +23,43 @@ class UserController extends Controller
     }
 
     /**
-     * Create a new user account.
+     * Create a new user account with optional auto-assigned role template.
      */
-    public function store(Request $request)
-    {
+    public function store(
+        Request $request,
+        \App\Services\RoleProvisionService $provisioner
+    ) {
         $data = $request->validate([
             'name' => [
                 'required',
                 'string',
-                'max:150'
+                'max:150',
             ],
 
             'username' => [
                 'nullable',
                 'string',
                 'max:100',
-                'unique:users,username'
+                'unique:users,username',
             ],
 
             'email' => [
                 'nullable',
                 'email',
                 'max:150',
-                'unique:users,email'
+                'unique:users,email',
             ],
 
             'phone' => [
                 'nullable',
                 'string',
                 'max:30',
-                'unique:users,phone'
+                'unique:users,phone',
             ],
 
             'password' => [
                 'nullable',
-                Password::min(8)
+                Password::min(8),
             ],
 
             'status' => [
@@ -65,15 +68,73 @@ class UserController extends Controller
                     'active',
                     'inactive',
                     'blocked',
-                ])
+                ]),
+            ],
+
+            'role_code' => [
+                'sometimes',
+                'string',
+                'max:100',
+            ],
+
+            'role_uuid' => [
+                'sometimes',
+                'uuid',
+                'exists:roles,uuid',
+            ],
+
+            'business_uuid' => [
+                'sometimes',
+                'uuid',
             ],
         ]);
 
-        $user = User::create($data);
+        $userData = collect($data)->only([
+            'name',
+            'username',
+            'email',
+            'phone',
+            'password',
+            'status',
+        ])->all();
+
+        $user = User::create($userData);
+
+        // Auto-assign role template if specified
+        $roleToAttach = null;
+
+        if (! empty($data['role_uuid'])) {
+            $roleToAttach = \App\Models\Role::where('uuid', $data['role_uuid'])->first();
+        } elseif (! empty($data['role_code'])) {
+            $roleCode = strtolower(trim($data['role_code']));
+            $businessUuid = $data['business_uuid'] ?? null;
+
+            if ($businessUuid) {
+                $roleToAttach = \App\Models\Role::where('business_uuid', $businessUuid)
+                    ->where('code', $roleCode)
+                    ->first();
+
+                // If role does not exist for this business yet, auto-provision default templates
+                if (! $roleToAttach) {
+                    $provisioned = $provisioner->provisionForBusiness($businessUuid);
+                    $roleToAttach = $provisioned->firstWhere('code', $roleCode);
+                }
+            }
+
+            // Fallback to global/system role template
+            if (! $roleToAttach) {
+                $roleToAttach = \App\Models\Role::where('code', $roleCode)->first();
+            }
+        }
+
+        if ($roleToAttach) {
+            $user->roles()->syncWithoutDetaching([$roleToAttach->id]);
+            $user->clearRbacCache();
+        }
 
         return response()->json([
             'message' => 'User created.',
-            'data' => $user,
+            'data' => $user->load('roles.permissions'),
         ], 201);
     }
 
@@ -141,6 +202,14 @@ class UserController extends Controller
         ]);
 
         $user->update($data);
+
+        if (! empty($data['password']) || (isset($data['status']) && in_array($data['status'], ['blocked', 'inactive']))) {
+            UserSession::where('user_id', $user->id)
+                ->whereNull('revoked_at')
+                ->update([
+                    'revoked_at' => now(),
+                ]);
+        }
 
         return response()->json([
             'message' => 'User updated.',

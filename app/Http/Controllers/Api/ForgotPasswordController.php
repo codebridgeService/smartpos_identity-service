@@ -95,8 +95,8 @@ class ForgotPasswordController extends Controller
     
         return response()->json([
             'message' =>
-                'Verification code sent successfully.',
-    
+                'If the email exists, a verification code has been sent.',
+
             'expires_in' =>
                 600,
         ]);

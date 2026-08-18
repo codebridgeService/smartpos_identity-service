@@ -23,7 +23,7 @@ Route::prefix('auth')->group(function () {
         '/login',
         [AuthController::class, 'login']
     )->middleware(
-        'throttle:10,1'
+        'throttle:login'
     )->name('login');
 
 
@@ -31,7 +31,7 @@ Route::prefix('auth')->group(function () {
         '/register',
         [AuthController::class, 'register']
     )->middleware(
-        'throttle:5,1'
+        'throttle:register'
     );
 
 
@@ -39,7 +39,7 @@ Route::prefix('auth')->group(function () {
         '/refresh',
         [AuthController::class, 'refresh']
     )->middleware(
-        'throttle:20,1'
+        'throttle:refresh'
     );
 
 
@@ -53,7 +53,7 @@ Route::prefix('auth')->group(function () {
         '/forgot-password/send-code',
         [ForgotPasswordController::class, 'sendCode']
     )->middleware(
-        'throttle:5,1'
+        'throttle:otp_send'
     );
 
 
@@ -61,7 +61,7 @@ Route::prefix('auth')->group(function () {
         '/verify-reset-code',
         [ForgotPasswordController::class, 'verifyCode']
     )->middleware(
-        'throttle:10,1'
+        'throttle:otp_verify'
     );
 
 
@@ -69,7 +69,7 @@ Route::prefix('auth')->group(function () {
         '/reset-password',
         [ForgotPasswordController::class, 'resetPassword']
     )->middleware(
-        'throttle:5,1'
+        'throttle:otp_reset'
     );
 
 
@@ -79,7 +79,7 @@ Route::prefix('auth')->group(function () {
     |--------------------------------------------------------------------------
     */
 
-    Route::middleware('auth:api')->group(function () {
+    Route::middleware(['auth:api', 'session.active'])->group(function () {
 
         Route::get(
             '/me',
