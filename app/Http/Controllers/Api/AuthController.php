@@ -9,6 +9,7 @@ use App\Models\UserDevice;
 use App\Models\UserSession;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use PHPOpenSourceSaver\JWTAuth\JWTGuard;
 
@@ -233,6 +234,39 @@ class AuthController extends Controller
             return response()->json([
                 'message' => 'Device is blocked.',
             ], 403);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | IDN-04 FIX: Server-side device fingerprint anomaly detection
+        |--------------------------------------------------------------------------
+        |
+        | When a known device_uuid is reused from a significantly different
+        | User-Agent or platform, this indicates possible device_uuid spoofing.
+        | The login is allowed but a security event is logged for monitoring.
+        |
+        */
+
+        if (! $device->wasRecentlyCreated) {
+            $currentPlatform = $data['platform'] ?? null;
+            $storedPlatform = $device->platform;
+
+            // Detect platform mismatch (e.g. android -> ios, or ios -> windows)
+            if (
+                $storedPlatform &&
+                $currentPlatform &&
+                strtolower($storedPlatform) !== strtolower($currentPlatform)
+            ) {
+                Log::warning('[SECURITY_DEVICE_FINGERPRINT_MISMATCH] Device UUID reused from different platform', [
+                    'user_id' => $user->id,
+                    'device_uuid' => $data['device_uuid'],
+                    'stored_platform' => $storedPlatform,
+                    'current_platform' => $currentPlatform,
+                    'ip' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                    'timestamp' => now()->toIso8601String(),
+                ]);
+            }
         }
 
         /*

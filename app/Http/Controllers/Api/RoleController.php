@@ -50,7 +50,19 @@ class RoleController extends Controller
             ],
         ]);
 
-        return Role::create($data);
+        $role = Role::create($data);
+
+        // Auto-synchronize default permissions if matching standard template exists
+        $templates = \App\Services\RoleProvisionService::getStandardRoleTemplates();
+        $matchingTemplate = collect($templates)->firstWhere('code', strtolower(trim($role->code)));
+
+        if ($matchingTemplate) {
+            $permissionIds = Permission::whereIn('code', $matchingTemplate['permissions'])->pluck('id');
+            $role->permissions()->sync($permissionIds);
+            \App\Services\RbacCacheService::forgetRoleUsersCache($role);
+        }
+
+        return $role->load('permissions');
     }
 
     /**
@@ -88,9 +100,26 @@ class RoleController extends Controller
 
     /**
      * Delete a role.
+     *
+     * IDN-01 FIX: System template roles (is_system = true) are protected
+     * from deletion to prevent accidental destruction of core RBAC templates
+     * (owner, admin, cashier, etc.) that the provisioning system relies on.
      */
     public function destroy(Role $role)
     {
+        if ($role->is_system) {
+            \Illuminate\Support\Facades\Log::warning('[SECURITY_SYSTEM_ROLE_DELETE_BLOCKED] Attempt to delete system role', [
+                'role_id' => $role->id,
+                'role_code' => $role->code,
+                'user_id' => auth('api')->id(),
+                'ip' => request()->ip(),
+            ]);
+
+            return response()->json([
+                'message' => 'System roles cannot be deleted. Remove the system flag first if this is intentional.',
+            ], 403);
+        }
+
         $role->delete();
 
         return response()->json([

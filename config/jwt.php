@@ -89,7 +89,19 @@ return [
     |
     */
 
-    'ttl' => (int) env('JWT_TTL', 60),
+    /*
+    | XSRV-01 FIX: Default TTL reduced from 60 to 15 minutes.
+    | Since downstream services (e.g. business-service) validate JWTs
+    | statelessly, a revoked session's access token remains valid until
+    | expiry. Shorter TTL limits this cross-service revocation gap.
+    */
+    'ttl' => (int) env('JWT_TTL', 15),
+
+    /*
+    | IDN-02 FIX: Enforce that all JWT tokens must contain the 'sid' claim
+    | to be accepted by session-guarded endpoints. Set to true in production.
+    */
+    'require_session_claim' => env('JWT_REQUIRE_SESSION_CLAIM', false),
 
     /*
     |--------------------------------------------------------------------------

@@ -104,6 +104,10 @@ class ForgotPasswordController extends Controller
 
     /**
      * Verify forgot-password OTP.
+     *
+     * IDN-03 FIX: OTP verification now uses pessimistic locking (FOR UPDATE)
+     * inside a DB transaction to prevent parallel brute-force requests from
+     * bypassing the 5-attempt limit via stale counter reads.
      */
     public function verifyCode(Request $request)
     {
@@ -122,121 +126,126 @@ class ForgotPasswordController extends Controller
 
         /*
         |--------------------------------------------------------------------------
-        | Find OTP
+        | IDN-03 FIX: Atomic OTP verification with row-level locking
         |--------------------------------------------------------------------------
         */
 
-        $otp = AuthOtp::where(
-            'identifier',
-            $data['email']
-        )
-            ->where(
-                'channel',
-                'email'
+        return DB::transaction(function () use ($data) {
+
+            // lockForUpdate() ensures concurrent requests serialize on this row
+            $otp = AuthOtp::where(
+                'identifier',
+                $data['email']
             )
-            ->where(
-                'purpose',
-                'forgot_password'
-            )
-            ->latest('id')
-            ->first();
+                ->where(
+                    'channel',
+                    'email'
+                )
+                ->where(
+                    'purpose',
+                    'forgot_password'
+                )
+                ->latest('id')
+                ->lockForUpdate()
+                ->first();
 
-        if (! $otp) {
+            if (! $otp) {
+                return response()->json([
+                    'message' =>
+                        'Invalid verification code.',
+                ], 422);
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Check already verified
+            |--------------------------------------------------------------------------
+            */
+
+            if ($otp->verified_at) {
+                return response()->json([
+                    'message' =>
+                        'Verification code has already been used.',
+                ], 422);
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Check expiration
+            |--------------------------------------------------------------------------
+            */
+
+            if ($otp->expires_at->isPast()) {
+                $otp->delete();
+
+                return response()->json([
+                    'message' =>
+                        'Verification code has expired.',
+                ], 422);
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Check attempts (atomic under lock)
+            |--------------------------------------------------------------------------
+            */
+
+            if ($otp->attempts >= 5) {
+                $otp->delete();
+
+                return response()->json([
+                    'message' =>
+                        'Too many failed attempts. Please request a new code.',
+                ], 429);
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Verify code
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                ! Hash::check(
+                    $data['code'],
+                    $otp->code_hash
+                )
+            ) {
+                $otp->increment(
+                    'attempts'
+                );
+
+                return response()->json([
+                    'message' =>
+                        'Invalid verification code.',
+
+                    'attempts_remaining' =>
+                        max(
+                            0,
+                            4 - $otp->attempts
+                        ),
+                ], 422);
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Mark OTP verified
+            |--------------------------------------------------------------------------
+            */
+
+            $otp->update([
+                'verified_at' =>
+                    now(),
+            ]);
+
             return response()->json([
                 'message' =>
-                    'Invalid verification code.',
-            ], 422);
-        }
+                    'Verification code verified successfully.',
 
-        /*
-        |--------------------------------------------------------------------------
-        | Check already verified
-        |--------------------------------------------------------------------------
-        */
-
-        if ($otp->verified_at) {
-            return response()->json([
-                'message' =>
-                    'Verification code has already been used.',
-            ], 422);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Check expiration
-        |--------------------------------------------------------------------------
-        */
-
-        if ($otp->expires_at->isPast()) {
-            $otp->delete();
-
-            return response()->json([
-                'message' =>
-                    'Verification code has expired.',
-            ], 422);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Check attempts
-        |--------------------------------------------------------------------------
-        */
-
-        if ($otp->attempts >= 5) {
-            $otp->delete();
-
-            return response()->json([
-                'message' =>
-                    'Too many failed attempts. Please request a new code.',
-            ], 429);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Verify code
-        |--------------------------------------------------------------------------
-        */
-
-        if (
-            ! Hash::check(
-                $data['code'],
-                $otp->code_hash
-            )
-        ) {
-            $otp->increment(
-                'attempts'
-            );
-
-            return response()->json([
-                'message' =>
-                    'Invalid verification code.',
-
-                'attempts_remaining' =>
-                    max(
-                        0,
-                        4 - $otp->attempts
-                    ),
-            ], 422);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Mark OTP verified
-        |--------------------------------------------------------------------------
-        */
-
-        $otp->update([
-            'verified_at' =>
-                now(),
-        ]);
-
-        return response()->json([
-            'message' =>
-                'Verification code verified successfully.',
-
-            'otp_uuid' =>
-                $otp->uuid,
-        ]);
+                'otp_uuid' =>
+                    $otp->uuid,
+            ]);
+        });
     }
 
     /**
