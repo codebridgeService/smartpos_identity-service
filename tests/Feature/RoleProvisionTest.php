@@ -43,22 +43,26 @@ class RoleProvisionTest extends TestCase
         $response->assertStatus(201)
             ->assertJson([
                 'message' => 'Standard roles provisioned successfully.',
-                'count' => 3,
+                'count' => 4,
             ]);
 
-        // Assert 3 business roles were created
+        // Assert 4 business roles were created
         $roles = Role::where('business_uuid', $businessUuid)->get();
-        $this->assertCount(3, $roles);
+        $this->assertCount(4, $roles);
 
+        $owner = $roles->firstWhere('code', 'owner');
         $storeManager = $roles->firstWhere('code', 'store_manager');
         $cashier = $roles->firstWhere('code', 'cashier');
         $inventoryClerk = $roles->firstWhere('code', 'inventory_clerk');
 
+        $this->assertNotNull($owner);
         $this->assertNotNull($storeManager);
         $this->assertNotNull($cashier);
         $this->assertNotNull($inventoryClerk);
 
         // Assert permissions are properly attached
+        $this->assertTrue($owner->permissions()->where('code', 'businesses.update')->exists());
+        $this->assertTrue($owner->permissions()->where('code', 'outlets.create')->exists());
         $this->assertTrue($storeManager->permissions()->where('code', 'pos.refund')->exists());
         $this->assertTrue($cashier->permissions()->where('code', 'pos.checkout')->exists());
         $this->assertFalse($cashier->permissions()->where('code', 'pos.refund')->exists());
